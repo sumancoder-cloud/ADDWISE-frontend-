@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login / Sign Up</title>
+  <link rel="stylesheet" href="form.css">
+  <style>
+    .error-message {
+      color: #dc3545;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    .loading {
+      position: relative;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    .loading::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      top: 50%;
+      left: 50%;
+      margin: -10px 0 0 -10px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .otp-container {
+      display: none;
+    }
+    .otp-inputs {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin: 15px 0;
+    }
+    .otp-inputs input {
+      width: 40px;
+      height: 40px;
+      text-align: center;
+      font-size: 18px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .otp-inputs input:focus {
+      border-color: #3498db;
+      outline: none;
+    }
+    .resend-timer {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      margin: 10px 0;
+    }
+    .back-link {
+      text-align: center;
+      margin-top: 10px;
+    }
+    .back-link a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    .back-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="form-container">
+  
+    <form id="loginForm" action="#" method="post" onsubmit="return handleLoginSubmit(event)">
+      <h2>Login to Addwise</h2>
+      
+      <div id="errorMessage" class="error-message"></div>
+
+      <label for="name">Full Name</label>
+      <input type="text" id="name" name="name" required 
+             pattern="[A-Za-z ]{2,}"
+             title="Please enter your full name (letters and spaces only)">
+
+      <label for="email">Email Address</label>
+      <input type="email" id="email" name="email" required 
+             pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+             title="Please enter a valid email address">
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required 
+             minlength="6"
+             title="Password must be at least 6 characters long">
+
+      <button type="submit" id="loginButton">Continue to Verification</button>
+
+      <p class="switch">Don't have an account? <a href="signup.html">Sign Up</a></p>
+    </form>
+
+
+    <form id="otpForm" class="otp-container" action="#" method="post" onsubmit="return handleOTPSubmit(event)">
+      <h2>Enter Verification Code</h2>
+      
+      <div id="otpErrorMessage" class="error-message"></div>
+
+      <p style="text-align: center; color: #666; margin-bottom: 15px;">
+        We've sent a verification code to your email
+      </p>
+
+      <div class="otp-inputs">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+        <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" onkeyup="moveToNext(this)">
+      </div>
+
+      <button type="submit" id="otpSubmitButton">Verify Code</button>
+
+      <div class="resend-timer">
+        Resend code in <span id="timer">60</span>s
+      </div>
+
+      <div class="back-link">
+        <a href="#" onclick="showLoginForm()">Back to login</a>
+      </div>
+    </form>
+  </div>
+
+  <script>
+   
+    function showError(message, formId = 'loginForm') {
+      const errorDiv = document.getElementById(formId === 'loginForm' ? 'errorMessage' : 'otpErrorMessage');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      setTimeout(() => {
+        errorDiv.style.display = 'none';
+      }, 3000);
+    }
+
+    async function handleLoginSubmit(event) {
+      event.preventDefault();
+      
+      const form = document.getElementById('loginForm');
+      const submitButton = document.getElementById('loginButton');
+      const name = document.getElementById('name').value;
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      
+      document.getElementById('errorMessage').style.display = 'none';
+      
+  
+      form.classList.add('loading');
+      submitButton.disabled = true;
+      
+      try {
+    
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+     
+        form.style.display = 'none';
+        document.getElementById('otpForm').style.display = 'block';
+        startTimer();
+        
+      } catch (error) {
+        showError('Failed to process login. Please try again.');
+      } finally {
+        form.classList.remove('loading');
+        submitButton.disabled = false;
+      }
+      
+      return false;
+    }
+
+   
+    async function handleOTPSubmit(event) {
+      event.preventDefault();
+      
+      const form = document.getElementById('otpForm');
+      const submitButton = document.getElementById('otpSubmitButton');
+      
+    
+      document.getElementById('otpErrorMessage').style.display = 'none';
+      
+      
+      const otpInputs = document.querySelectorAll('.otp-inputs input');
+      let otp = '';
+      otpInputs.forEach(input => {
+        otp += input.value;
+      });
+
+      if (otp.length !== 6) {
+        showError('Please enter the complete verification code', 'otpForm');
+        return false;
+      }
+
+      form.classList.add('loading');
+      submitButton.disabled = true;
+      
+      try {
+       
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+   
+        window.location.href = 'dashboard.html';
+        
+      } catch (error) {
+        showError('Invalid verification code. Please try again.', 'otpForm');
+      } finally {
+        form.classList.remove('loading');
+        submitButton.disabled = false;
+      }
+      
+      return false;
+    }
+
+    
+    function moveToNext(input) {
+      if (input.value.length === 1) {
+        const nextInput = input.nextElementSibling;
+        if (nextInput) {
+          nextInput.focus();
+        }
+      }
+    }
+
+  
+    function showLoginForm() {
+      document.getElementById('otpForm').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+      resetOTPInputs();
+    }
+
+    function resetOTPInputs() {
+      const otpInputs = document.querySelectorAll('.otp-inputs input');
+      otpInputs.forEach(input => {
+        input.value = '';
+      });
+      otpInputs[0].focus();
+    }
+
+
+    function startTimer() {
+      let timeLeft = 60;
+      const timerSpan = document.getElementById('timer');
+      const timer = setInterval(() => {
+        timeLeft--;
+        timerSpan.textContent = timeLeft;
+        if (timeLeft <= 0) {
+          clearInterval(timer);
+          document.querySelector('.resend-timer').innerHTML = 
+            '<a href="#" onclick="resendOTP()" style="color: #3498db; text-decoration: none;">Resend code</a>';
+        }
+      }, 1000);
+    }
+
+   
+    async function resendOTP() {
+      const email = document.getElementById('email').value;
+      try {
+       
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        showError('New verification code sent', 'otpForm');
+        resetOTPInputs();
+        startTimer();
+      } catch (error) {
+        showError('Failed to resend code. Please try again.', 'otpForm');
+      }
+    }
+
+    document.querySelector('.otp-inputs input').focus();
+  </script>
+</body>
+</html>

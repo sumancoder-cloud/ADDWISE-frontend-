@@ -1,0 +1,157 @@
+* {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  background: radial-gradient(ellipse at top, #0f0c29 0%, #030116 40%, #01010aea 100%);
+  color: white;
+
+}
+
+.main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(to right, purple, black);
+  padding: 20px 40px;
+}
+
+.logo {
+  font-size: 24px;
+  font-weight: bold;
+  color: white;
+}
+
+.navbar-container {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+
+.navbar {
+  list-style: none;
+  display: flex;
+  gap: 30px;
+}
+
+.navbar li a {
+  color: white;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.3s;
+}
+
+.navbar li a:hover {
+  color: #ffcc00;
+}
+
+.auth-buttons {
+  display: flex;
+  gap: 15px;
+  margin-left: 30px;
+}
+
+.btn {
+  padding: 8px 16px;
+  background: #ffcc00;
+  color: black;
+  text-decoration: none;
+  border-radius: 5px;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+
+.btn:hover {
+  background: #fff;
+}
+
+.main {
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(to right, purple, black);
+  padding: 20px 40px;
+  flex-wrap: wrap;
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.navbar-container {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+
+.navbar {
+  list-style: none;
+  display: flex;
+  gap: 20px;
+  padding: 0;
+  margin: 0;
+}
+
+.navbar li a {
+  text-decoration: none;
+  color: white;
+  font-weight: bold;
+}
+
+.auth-buttons .btn {
+  padding: 8px 15px;
+  margin-left: 10px;
+  background-color: #ffcc00;
+  color: black;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+
+.auth-buttons .btn:hover {
+  background-color: white;
+  color: #000;
+}
+.video-container {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 20px;
+  width: 90%;
+  max-width: 1000px;
+  margin: 20px auto;
+  background-color: #000;
+  border-radius: 100px;
+  box-shadow: 10px px 20px rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.video-container video {
+  width: 45%;         
+  border-radius: 10px;
+}
+
+.company-text {
+  width: 50%;          
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.company-text h1 {
+  font-size: 42px;      
+  margin-bottom: 15px;
+}
+
+.company-text p {
+  font-size: 20px;     
+  font-style: italic;
+  color: #ffcc00;
+}
