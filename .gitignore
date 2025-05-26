@@ -1,0 +1,55 @@
+# Configuration files
+config.php
+.env
+
+# Dependencies
+/vendor/
+composer.lock
+
+# Logs
+*.log
+/logs/
+
+# Cache
+/cache/
+*.cache
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Security
+*.pem
+*.key
+*.crt
+*.csr
+*.srl
+
+# Build files
+/build/
+/dist/
+
+# Test files
+/tests/coverage/
+.phpunit.result.cache
+
+# Other
+*.zip
+*.tar.gz
+*.rar
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log 

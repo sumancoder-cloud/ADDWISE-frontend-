@@ -1,199 +1,132 @@
 <?php
 require_once 'config.php';
-require_once 'email_handler.php';
+require_once 'auth.php';
 
-session_start();
-
-$name = $email = $password = $confirm_password = $otp = "";
+// Remove session_start() since it's handled in Auth class
+$name = $email = $password = $confirm_password = "";
 $name_err = $email_err = $password_err = $confirm_password_err = $otp_err = "";
 $show_otp_form = false;
 $success_message = "";
 
-// Process form data when form is submitted
+// Initialize Auth class
+$auth = new Auth($conn);
+
+// Process registration form
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['register'])) {
-        error_log("=== Starting Registration Process ===");
         // Validate name
-        if (empty(trim($_POST["name"]))) {
+        if (empty(trim($_POST["name"] ?? ''))) {
             $name_err = "Please enter your name.";
-            error_log("Name validation failed - empty name");
+            error_log("Registration attempt - empty name");
         } else {
             $name = trim($_POST["name"]);
-            if (!preg_match("/^[a-zA-Z ]*$/", $name)) {
+            if (!preg_match('/^[a-zA-Z\s]+$/', $name)) {
                 $name_err = "Name can only contain letters and spaces.";
-                error_log("Name validation failed - invalid characters in name: " . $name);
-            } elseif (strlen($name) < 2) {
-                $name_err = "Name must be at least 2 characters long.";
-                error_log("Name validation failed - name too short: " . $name);
-            } else {
-                error_log("Name validation successful: " . $name);
+                error_log("Registration attempt - invalid name format: " . $name);
             }
         }
         
         // Validate email
-        if (empty(trim($_POST["email"]))) {
+        if (empty(trim($_POST["email"] ?? ''))) {
             $email_err = "Please enter your email.";
-            error_log("Email validation failed - empty email");
+            error_log("Registration attempt - empty email");
         } else {
             $email = trim($_POST["email"]);
-            error_log("Validating email: " . $email);
-            
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $email_err = "Please enter a valid email address.";
+                error_log("Registration attempt - invalid email format: " . $email);
+            } else {
             // Check if email exists
-            $sql = "SELECT id FROM users WHERE email = ?";
-            if ($stmt = mysqli_prepare($conn, $sql)) {
-                mysqli_stmt_bind_param($stmt, "s", $email);
-                if (mysqli_stmt_execute($stmt)) {
-                    mysqli_stmt_store_result($stmt);
-                    if (mysqli_stmt_num_rows($stmt) > 0) {
-                        $email_err = "This email is already registered. Please login instead.";
-                        error_log("Email validation failed - email already exists: " . $email);
-                    } else {
-                        error_log("Email validation successful - email is unique: " . $email);
-                    }
-                } else {
-                    $email_err = "Oops! Something went wrong. Please try again later.";
-                    error_log("Email validation failed - database error: " . mysqli_error($conn));
+                $result = $auth->checkEmailExists($email);
+                if ($result['exists']) {
+                    $email_err = "This email is already registered.";
+                    error_log("Registration attempt - email already exists: " . $email);
                 }
-                mysqli_stmt_close($stmt);
             }
         }
         
         // Validate password
-        if (empty(trim($_POST["password"]))) {
+        if (empty(trim($_POST["password"] ?? ''))) {
             $password_err = "Please enter a password.";     
+            error_log("Registration attempt - empty password");
         } else {
             $password = trim($_POST["password"]);
-            // Password validation rules
-            $uppercase = preg_match('@[A-Z]@', $password);
-            $lowercase = preg_match('@[a-z]@', $password);
-            $number    = preg_match('@[0-9]@', $password);
-            $specialChars = preg_match('@[^\w]@', $password);
-            
-            if(strlen($password) < 8) {
-                $password_err = "Password must be at least 8 characters long.";
-            } elseif(!$uppercase) {
+            if (strlen($password) < 8) {
+                $password_err = "Password must have at least 8 characters.";
+                error_log("Registration attempt - password too short");
+            } elseif (!preg_match('/[A-Z]/', $password)) {
                 $password_err = "Password must contain at least one uppercase letter.";
-            } elseif(!$lowercase) {
+                error_log("Registration attempt - password missing uppercase");
+            } elseif (!preg_match('/[a-z]/', $password)) {
                 $password_err = "Password must contain at least one lowercase letter.";
-            } elseif(!$number) {
+                error_log("Registration attempt - password missing lowercase");
+            } elseif (!preg_match('/[0-9]/', $password)) {
                 $password_err = "Password must contain at least one number.";
-            } elseif(!$specialChars) {
+                error_log("Registration attempt - password missing number");
+            } elseif (!preg_match('/[^A-Za-z0-9]/', $password)) {
                 $password_err = "Password must contain at least one special character.";
+                error_log("Registration attempt - password missing special character");
             }
         }
         
         // Validate confirm password
-        if (empty(trim($_POST["confirm_password"]))) {
-            $confirm_password_err = "Please confirm your password.";     
+        if (empty(trim($_POST["confirm_password"] ?? ''))) {
+            $confirm_password_err = "Please confirm password.";
+            error_log("Registration attempt - empty confirm password");
         } else {
             $confirm_password = trim($_POST["confirm_password"]);
-            if (empty($password_err) && ($password != $confirm_password)) {
-                $confirm_password_err = "Passwords do not match. Please try again.";
+            if ($password != $confirm_password) {
+                $confirm_password_err = "Passwords did not match.";
+                error_log("Registration attempt - passwords do not match");
             }
         }
         
-        // Check input errors before proceeding
+        // If no validation errors, proceed with registration
         if (empty($name_err) && empty($email_err) && empty($password_err) && empty($confirm_password_err)) {
-            error_log("All validations passed, proceeding with OTP generation");
-            // Generate and send OTP
-            $otp = generateOTP();
-            if (sendOTPEmail($email, $otp) && storeOTP($email, $otp)) {
-                error_log("OTP generated and stored successfully for email: " . $email);
-                // Store user data in session
-                $_SESSION['temp_user'] = [
-                    'name' => $name,
+            $result = $auth->register($name, $email, $password);
+            
+            if ($result['success']) {
+                // Store temporary data in session
+                $_SESSION['temp_auth'] = [
                     'email' => $email,
-                    'password' => password_hash($password, PASSWORD_DEFAULT)
+                    'name' => $name
                 ];
-                error_log("Temporary user data stored in session: " . print_r($_SESSION['temp_user'], true));
                 $show_otp_form = true;
-                $success_message = "Verification code has been sent to your email!";
+                $success_message = "Registration successful! Please verify your email with the code sent.";
+                error_log("Registration successful, OTP sent to: " . $email);
             } else {
-                $email_err = "Failed to send verification code. Please try again.";
-                error_log("Failed to send/store OTP for email: " . $email);
+                $email_err = $result['message'];
+                error_log("Registration failed: " . $result['message']);
             }
-        } else {
-            error_log("Registration validation failed - Name error: " . $name_err . ", Email error: " . $email_err . ", Password error: " . $password_err . ", Confirm password error: " . $confirm_password_err);
         }
     } elseif (isset($_POST['verify_otp'])) {
-        error_log("=== OTP Verification Attempt ===");
-        error_log("POST data: " . print_r($_POST, true));
-        error_log("Session data: " . print_r($_SESSION, true));
-        
-        if (empty($_POST["otp"])) {
-            $otp_err = "Please enter the verification code.";
-            error_log("OTP verification failed - empty OTP");
+        if (!isset($_SESSION['temp_auth'])) {
+            $otp_err = "Session expired. Please register again.";
+            error_log("OTP verification failed - no temporary session data");
         } else {
-            $otp = implode('', $_POST["otp"]);
+            $email = $_SESSION['temp_auth']['email'];
+            $otp = implode('', $_POST['otp'] ?? []);
             
-            // Check if we have the temporary user data
-            if (!isset($_SESSION['temp_user'])) {
-                error_log("Session data missing - temp_user not found");
-                $otp_err = "Session expired. Please try registering again.";
-                echo "<script>alert('Session expired. Please try registering again.');</script>";
+            if (empty($otp)) {
+                $otp_err = "Please enter the verification code.";
+                error_log("OTP verification failed - empty OTP");
             } else {
-                $email = $_SESSION['temp_user']['email'];
-                $name = $_SESSION['temp_user']['name'];
-                $hashed_password = $_SESSION['temp_user']['password'];
+                $result = $auth->verifyOTP($email, $otp, 'registration');
                 
-                error_log("Verifying OTP for email: " . $email);
-                error_log("Entered OTP: " . $otp);
-                
-                // Verify OTP
-                $sql = "SELECT * FROM otp_verification WHERE email = ? AND otp = ? AND created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)";
-                if ($stmt = mysqli_prepare($conn, $sql)) {
-                    mysqli_stmt_bind_param($stmt, "ss", $email, $otp);
-                    if (mysqli_stmt_execute($stmt)) {
-                        mysqli_stmt_store_result($stmt);
-                        if (mysqli_stmt_num_rows($stmt) == 1) {
-                            error_log("OTP verified successfully");
-                            
-                            // Create user account
-                            $sql = "INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, NOW())";
-                            if ($stmt = mysqli_prepare($conn, $sql)) {
-                                mysqli_stmt_bind_param($stmt, "sss", $name, $email, $hashed_password);
-                                
-                                if (mysqli_stmt_execute($stmt)) {
-                                    error_log("User account created successfully");
-                                    
-                                    // Clear OTP data
-                                    $sql = "DELETE FROM otp_verification WHERE email = ?";
-                                    if ($stmt = mysqli_prepare($conn, $sql)) {
-                                        mysqli_stmt_bind_param($stmt, "s", $email);
-                                        mysqli_stmt_execute($stmt);
-                                    }
-                                    
+                if ($result['success']) {
                                     // Clear temporary session data
-                                    unset($_SESSION['temp_user']);
+                    unset($_SESSION['temp_auth']);
                                     
                                     // Set success message and redirect
-                                    $_SESSION['success_message'] = "Registration successful! You can now login.";
-                                    echo "<script>
-                                        alert('Registration successful! You can now login.');
-                                        window.location.href = 'login.php';
-                                    </script>";
+                    $_SESSION['success_message'] = "Registration completed successfully! You can now login.";
+                    header("location: login.php");
                                     exit();
                                 } else {
-                                    error_log("Failed to create user account: " . mysqli_error($conn));
-                                    $otp_err = "Registration failed. Please try again.";
-                                    echo "<script>alert('Registration failed. Please try again.');</script>";
-                                }
-                            }
-                        } else {
-                            error_log("Invalid or expired OTP");
-                            $otp_err = "Invalid or expired verification code. Please try again.";
-                            echo "<script>alert('Invalid or expired verification code. Please try again.');</script>";
-                        }
-                    } else {
-                        error_log("Database error during OTP verification: " . mysqli_error($conn));
-                        $otp_err = "Something went wrong. Please try again.";
-                        echo "<script>alert('Something went wrong. Please try again.');</script>";
-                    }
-                    mysqli_stmt_close($stmt);
+                    $otp_err = $result['message'];
+                    error_log("OTP verification failed: " . $result['message']);
                 }
             }
         }
-        error_log("=== End of OTP Verification Attempt ===");
     }
 }
 ?>
@@ -216,11 +149,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: #dc3545;
             background-color: #f8d7da;
             border: 1px solid #f5c6cb;
+            display: block;
         }
         .success-message {
             color: #28a745;
             background-color: #d4edda;
             border: 1px solid #c3e6cb;
+            display: block;
         }
         .otp-container {
             display: none;
@@ -230,6 +165,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             gap: 10px;
             justify-content: center;
             margin: 15px 0;
+            position: relative;
         }
         .otp-inputs input {
             width: 40px;
@@ -240,10 +176,58 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             border-radius: 4px;
             background: #1a1a2e;
             color: white;
+            position: relative;
         }
         .otp-inputs input:focus {
             border-color: #ffcc00;
             outline: none;
+        }
+        .otp-inputs input.valid {
+            border-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+        }
+        .otp-inputs input.invalid {
+            border-color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+        .otp-inputs input::after {
+            content: '';
+            position: absolute;
+            right: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+        .otp-inputs input.valid::after {
+            content: '✓';
+            color: #28a745;
+            position: absolute;
+            right: -25px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .otp-inputs input.invalid::after {
+            content: '✕';
+            color: #dc3545;
+            position: absolute;
+            right: -25px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .otp-validation-status {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .otp-validation-status.valid {
+            color: #28a745;
+        }
+        .otp-validation-status.invalid {
+            color: #dc3545;
         }
         .resend-timer {
             text-align: center;
@@ -314,6 +298,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             content: "✓";
             color: #28a745;
         }
+        #verifyButton {
+            width: 100%;
+            padding: 12px;
+            background: #ffcc00;
+            color: black;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        #verifyButton:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #verifyButton.verifying {
+            background: #ffcc00;
+            cursor: wait;
+        }
+        #verifyButton.verifying::after {
+            content: '...';
+            position: absolute;
+            right: 20px;
+        }
+        .form-group {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: white;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            border-color: #ffcc00;
+            outline: none;
+        }
     </style>
 </head>
 <body>
@@ -339,22 +367,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <?php echo $success_message; ?>
             </div>
 
+            <div class="form-group">
             <label for="name">Full Name</label>
             <input type="text" id="name" name="name" required 
                    value="<?php echo $name; ?>"
                    pattern="[A-Za-z\s]+"
-                   title="Please enter your full name (letters and spaces only)">
+                       title="Please enter your full name (letters and spaces only)"
+                       oninput="validateName(this)">
+                <span class="validation-icon" id="nameIcon"></span>
+            </div>
 
+            <div class="form-group">
             <label for="email">Email Address</label>
             <input type="email" id="email" name="email" required 
                    value="<?php echo $email; ?>"
                    pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
-                   title="Please enter a valid email address">
+                       title="Please enter a valid email address"
+                       oninput="validateEmail(this)">
+                <span class="validation-icon" id="emailIcon"></span>
+            </div>
 
+            <div class="form-group">
             <label for="password">Password</label>
             <input type="password" id="password" name="password" required 
                    minlength="8"
-                   title="Password must be at least 8 characters long and include uppercase, lowercase, number, and special character">
+                       title="Password must be at least 8 characters long and include uppercase, lowercase, number, and special character"
+                       oninput="validatePassword(this)">
+                <span class="validation-icon" id="passwordIcon"></span>
+            </div>
             
             <div class="password-requirements">
                 <p>Password must contain:</p>
@@ -367,80 +407,273 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </ul>
             </div>
 
+            <div class="form-group">
             <label for="confirm_password">Confirm Password</label>
-            <input type="password" id="confirm_password" name="confirm_password" required>
+                <input type="password" id="confirm_password" name="confirm_password" required
+                       oninput="validateConfirmPassword(this)">
+                <span class="validation-icon" id="confirmPasswordIcon"></span>
+            </div>
 
-            <button type="submit" name="register">Continue to Verification</button>
+            <button type="submit" name="register" id="registerButton" disabled>Create Account</button>
 
             <p class="switch">Already have an account? <a href="login.php">Login</a></p>
         </form>
 
-        <form id="otpForm" class="otp-container" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="post"
-              style="display: <?php echo $show_otp_form ? 'block' : 'none'; ?>">
+        <form id="otpForm" class="otp-container" action="verify_otp.php" method="post"
+              style="display: <?php echo $show_otp_form ? 'block' : 'none'; ?>"
+              onsubmit="return handleOTPSubmit(event)">
             <h2>Enter Verification Code</h2>
             
-            <div class="error-message" style="display: <?php echo !empty($otp_err) ? 'block' : 'none'; ?>">
-                <?php echo $otp_err; ?>
-            </div>
+            <div id="otpError" class="error-message" style="display: none;"></div>
+            <div id="otpSuccess" class="success-message" style="display: none;"></div>
+            <div id="verificationStatus" style="display: none;"></div>
 
             <p style="text-align: center; color: #666; margin-bottom: 15px;">
                 We've sent a verification code to <?php echo htmlspecialchars($email); ?>
             </p>
 
+            <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
+
             <div class="otp-inputs">
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
-                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" onkeyup="moveToNext(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
+                <input type="text" maxlength="1" pattern="[0-9]" inputmode="numeric" name="otp[]" 
+                       onkeyup="validateOTPInput(this)" oninput="validateOTPInput(this)" required>
             </div>
 
-            <button type="submit" name="verify_otp">Verify Code</button>
+            <div id="otpValidationStatus" class="otp-validation-status"></div>
+
+            <button type="submit" name="verify_otp" id="verifyButton" disabled>Verify Code</button>
 
             <div class="resend-timer">
                 Resend code in <span id="timer">60</span>s
             </div>
 
             <div class="back-link">
-                <a href="#" onclick="showSignupForm()">Back to signup</a>
+                <a href="#" onclick="return showSignupForm()">Back to signup</a>
             </div>
         </form>
     </div>
 
     <script>
-        function moveToNext(input) {
-            if (input.value.length === 1) {
+        // Add debug mode
+        const DEBUG = true;
+
+        function logDebug(...args) {
+            if (DEBUG) {
+                console.log('[DEBUG]', ...args);
+            }
+        }
+
+        function validateOTPInput(input) {
+            const value = input.value.trim();
+            const isValid = /^[0-9]$/.test(value);
+            
+            // Remove existing classes
+            input.classList.remove('valid', 'invalid');
+            
+            if (value.length === 1) {
+                if (isValid) {
+                    input.classList.add('valid');
+                    // Move to next input
                 const nextInput = input.nextElementSibling;
                 if (nextInput) {
                     nextInput.focus();
+                    }
+                } else {
+                    input.classList.add('invalid');
+                    input.value = ''; // Clear invalid input
                 }
             }
             
-            // Check if all inputs are filled
+            // Update validation status
+            updateOTPValidationStatus();
+            
+            // Enable/disable verify button
             const otpInputs = document.querySelectorAll('.otp-inputs input');
-            const allFilled = Array.from(otpInputs).every(input => input.value.length === 1);
-            if (allFilled) {
-                // Automatically submit the form when all digits are entered
-                document.getElementById('otpForm').submit();
+            const allValid = Array.from(otpInputs).every(input => 
+                input.value.length === 1 && input.classList.contains('valid')
+            );
+            document.getElementById('verifyButton').disabled = !allValid;
+        }
+
+        function updateOTPValidationStatus() {
+            const otpInputs = document.querySelectorAll('.otp-inputs input');
+            const validationStatus = document.getElementById('otpValidationStatus');
+            const filledInputs = Array.from(otpInputs).filter(input => input.value.length === 1).length;
+            
+            if (filledInputs === 0) {
+                validationStatus.textContent = 'Enter the 6-digit verification code';
+                validationStatus.className = 'otp-validation-status';
+            } else if (filledInputs < 6) {
+                validationStatus.textContent = `Enter ${6 - filledInputs} more digit${6 - filledInputs === 1 ? '' : 's'}`;
+                validationStatus.className = 'otp-validation-status';
+            } else {
+                const allValid = Array.from(otpInputs).every(input => 
+                    input.value.length === 1 && input.classList.contains('valid')
+                );
+                if (allValid) {
+                    validationStatus.textContent = 'Verification code is valid';
+                    validationStatus.className = 'otp-validation-status valid';
+                } else {
+                    validationStatus.textContent = 'Please enter valid digits only';
+                    validationStatus.className = 'otp-validation-status invalid';
+                }
             }
         }
 
-        function showSignupForm() {
-            document.getElementById('otpForm').style.display = 'none';
-            document.getElementById('signupForm').style.display = 'block';
-            resetOTPInputs();
-        }
-
-        function resetOTPInputs() {
+        function handleOTPSubmit(event) {
+            event.preventDefault();
+            
+            const form = document.getElementById('otpForm');
+            const submitButton = document.getElementById('verifyButton');
             const otpInputs = document.querySelectorAll('.otp-inputs input');
+            const verificationStatus = document.getElementById('verificationStatus');
+            
+            // Clear previous messages
+            document.getElementById('otpError').style.display = 'none';
+            document.getElementById('otpSuccess').style.display = 'none';
+            verificationStatus.style.display = 'none';
+            
+            // Validate all inputs
+            let otp = [];
+            let isValid = true;
+            
+            otpInputs.forEach((input, index) => {
+                const value = input.value.trim();
+                if (!value || !/^[0-9]$/.test(value)) {
+                    isValid = false;
+                    input.classList.add('invalid');
+                } else {
+                    input.classList.add('valid');
+                    otp.push(value);
+                }
+            });
+
+            if (!isValid || otp.length !== 6) {
+                showError('Please enter a valid 6-digit verification code');
+                return false;
+            }
+
+            // Show loading state
+            submitButton.disabled = true;
+            submitButton.classList.add('verifying');
+            submitButton.textContent = 'Verifying...';
+            
+            // Create FormData object
+            const formData = new FormData();
+            const email = form.querySelector('input[name="email"]').value;
+            formData.append('email', email);
+            otp.forEach((digit, index) => {
+                formData.append('otp[]', digit);
+            });
+
+            // Log the request
+            if (DEBUG) {
+                logDebug('Sending OTP verification request', {
+                    email: email,
+                    otp: otp.join('')
+                });
+            }
+
+            // Submit form using fetch
+            fetch('verify_otp.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (DEBUG) {
+                    logDebug('Received response status:', response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (DEBUG) {
+                    logDebug('Received response data:', data);
+                }
+                
+                submitButton.classList.remove('verifying');
+                
+                if (data.success) {
+                    showSuccess(data.message || 'Verification successful! Your account has been created.');
+                    otpInputs.forEach(input => {
+                        input.disabled = true;
+                        input.classList.add('valid');
+                    });
+                    submitButton.style.display = 'none';
+                    
+                    // Add login button
+                    const loginButton = document.createElement('button');
+                    loginButton.type = 'button';
+                    loginButton.textContent = 'Go to Login';
+                    loginButton.style.marginTop = '15px';
+                    loginButton.onclick = function() {
+                        window.location.href = 'login.php';
+                    };
+                    submitButton.parentNode.insertBefore(loginButton, submitButton.nextSibling);
+                    
+                    document.querySelector('.resend-timer').style.display = 'none';
+                    document.querySelector('.back-link').style.display = 'none';
+                } else {
+                    showError(data.message || 'Invalid verification code. Please try again.');
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Verify Code';
+                    
+                    // Reset OTP inputs on error
             otpInputs.forEach(input => {
                 input.value = '';
+                        input.disabled = false;
+                        input.classList.remove('valid', 'invalid');
+                    });
+                    otpInputs[0].focus();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                if (DEBUG) {
+                    logDebug('Error during verification:', error);
+                }
+                submitButton.classList.remove('verifying');
+                showError('Something went wrong. Please try again.');
+                submitButton.disabled = false;
+                submitButton.textContent = 'Verify Code';
             });
-            otpInputs[0].focus();
+
+            return false;
         }
 
-        function startTimer() {
+        function showError(message) {
+            const errorDiv = document.getElementById('otpError');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.getElementById('otpSuccess').style.display = 'none';
+            
+            if (DEBUG) {
+                logDebug('Showing error message:', message);
+            }
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('otpSuccess');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            document.getElementById('otpError').style.display = 'none';
+            
+            if (DEBUG) {
+                logDebug('Showing success message:', message);
+            }
+        }
+
+        // Start timer if OTP form is shown
+        if (document.getElementById('otpForm').style.display === 'block') {
             let timeLeft = 60;
             const timerSpan = document.getElementById('timer');
             const timer = setInterval(() => {
@@ -452,73 +685,108 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         '<a href="#" onclick="resendOTP()" style="color: #ffcc00; text-decoration: none;">Resend code</a>';
                 }
             }, 1000);
-        }
-
-        async function resendOTP() {
-            const email = document.getElementById('email').value;
-            try {
-                const response = await fetch('resend_otp.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: 'email=' + encodeURIComponent(email)
-                });
-                const data = await response.json();
-                if (data.success) {
-                    alert('New verification code sent!');
-                    resetOTPInputs();
-                    startTimer();
-                } else {
-                    alert(data.message || 'Failed to resend code. Please try again.');
-                }
-            } catch (error) {
-                alert('Failed to resend code. Please try again.');
-            }
-        }
-
-        // Start timer if OTP form is shown
-        if (document.getElementById('otpForm').style.display === 'block') {
-            startTimer();
             document.querySelector('.otp-inputs input').focus();
         }
 
-        const password = document.getElementById('password');
-        const confirmPassword = document.getElementById('confirm_password');
-        const requirements = {
-            length: document.getElementById('length'),
-            uppercase: document.getElementById('uppercase'),
-            lowercase: document.getElementById('lowercase'),
-            number: document.getElementById('number'),
-            special: document.getElementById('special')
-        };
+        // Add this to your existing script
+        if (DEBUG) {
+            // Log when the page loads
+            logDebug('Page loaded');
+            logDebug('Session status:', '<?php echo isset($_SESSION['temp_auth']) ? 'Active' : 'Expired'; ?>');
+            logDebug('Email:', '<?php echo htmlspecialchars($email); ?>');
+        }
 
-        function validatePassword() {
-            const value = password.value;
+        // Add validation functions
+        function validateName(input) {
+            const value = input.value.trim();
+            const isValid = /^[a-zA-Z\s]+$/.test(value) && value.length > 0;
+            updateValidationStatus(input, isValid, 'nameIcon');
+            validateForm();
+        }
+
+        function validateEmail(input) {
+            const value = input.value.trim();
+            const isValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value);
+            updateValidationStatus(input, isValid, 'emailIcon');
+            validateForm();
+        }
+
+        function validatePassword(input) {
+            const value = input.value;
+            const requirements = {
+                length: value.length >= 8,
+                uppercase: /[A-Z]/.test(value),
+                lowercase: /[a-z]/.test(value),
+                number: /[0-9]/.test(value),
+                special: /[^A-Za-z0-9]/.test(value)
+            };
             
-            // Check each requirement
-            requirements.length.classList.toggle('valid', value.length >= 8);
-            requirements.uppercase.classList.toggle('valid', /[A-Z]/.test(value));
-            requirements.lowercase.classList.toggle('valid', /[a-z]/.test(value));
-            requirements.number.classList.toggle('valid', /[0-9]/.test(value));
-            requirements.special.classList.toggle('valid', /[^A-Za-z0-9]/.test(value));
+            // Update requirement indicators
+            Object.keys(requirements).forEach(req => {
+                const element = document.getElementById(req);
+                if (requirements[req]) {
+                    element.classList.add('valid');
+                } else {
+                    element.classList.remove('valid');
+                }
+            });
             
-            // Update confirm password validation
+            const isValid = Object.values(requirements).every(Boolean);
+            updateValidationStatus(input, isValid, 'passwordIcon');
+            validateForm();
+            
+            // Update confirm password validation if it has a value
+            const confirmPassword = document.getElementById('confirm_password');
             if (confirmPassword.value) {
-                confirmPassword.setCustomValidity(
-                    confirmPassword.value === value ? '' : 'Passwords do not match'
-                );
+                validateConfirmPassword(confirmPassword);
             }
         }
 
-        function validateConfirmPassword() {
-            confirmPassword.setCustomValidity(
-                confirmPassword.value === password.value ? '' : 'Passwords do not match'
-            );
+        function validateConfirmPassword(input) {
+            const password = document.getElementById('password').value;
+            const value = input.value;
+            const isValid = value === password && value.length > 0;
+            updateValidationStatus(input, isValid, 'confirmPasswordIcon');
+            validateForm();
         }
 
-        password.addEventListener('input', validatePassword);
-        confirmPassword.addEventListener('input', validateConfirmPassword);
+        function updateValidationStatus(input, isValid, iconId) {
+            input.classList.remove('valid', 'invalid');
+            const icon = document.getElementById(iconId);
+            icon.classList.remove('valid', 'invalid');
+            
+            if (input.value.length > 0) {
+                input.classList.add(isValid ? 'valid' : 'invalid');
+                icon.classList.add(isValid ? 'valid' : 'invalid');
+                icon.textContent = isValid ? '✓' : '✕';
+            }
+        }
+
+        function validateForm() {
+            const name = document.getElementById('name');
+            const email = document.getElementById('email');
+            const password = document.getElementById('password');
+            const confirmPassword = document.getElementById('confirm_password');
+            
+            const isNameValid = name.classList.contains('valid');
+            const isEmailValid = email.classList.contains('valid');
+            const isPasswordValid = password.classList.contains('valid');
+            const isConfirmPasswordValid = confirmPassword.classList.contains('valid');
+            
+            const registerButton = document.getElementById('registerButton');
+            registerButton.disabled = !(isNameValid && isEmailValid && isPasswordValid && isConfirmPasswordValid);
+        }
+
+        // Initialize validation on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const inputs = document.querySelectorAll('#signupForm input');
+            inputs.forEach(input => {
+                if (input.value) {
+                    const event = new Event('input');
+                    input.dispatchEvent(event);
+                }
+            });
+        });
     </script>
 </body>
 </html>
